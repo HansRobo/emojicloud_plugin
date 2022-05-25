@@ -56,8 +56,8 @@
 namespace emojicloud_plugin {
 using rviz::BoolProperty;
 using rviz::ColorProperty;
-using rviz::Display;
-using rviz::DisplayContext;
+using rviz_common::Display;
+using rviz_common::DisplayContext;
 using rviz::EnumProperty;
 using rviz::findChannelIndex;
 using rviz::FloatProperty;

@@ -27,29 +27,31 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <OGRE/OgreSceneManager.h>
-#include <OGRE/OgreSceneNode.h>
+#include "emojicloud_plugin/emoji_point_cloud2_display.h"
 
-#include <tf/transform_listener.h>
+#include <memory>
 
-#include <rviz/default_plugin/point_cloud_transformers.h>
-#include <rviz/frame_manager.h>
-#include <rviz/properties/color_property.h>
-#include <rviz/properties/float_property.h>
-#include <rviz/properties/int_property.h>
-#include <rviz/validate_floats.h>
-#include <rviz/visualization_manager.h>
+#include <OgreSceneNode.h>
+#include <OgreSceneManager.h>
 
-#include <ros/package.h>
+#include "rviz_default_plugins/displays/pointcloud/point_cloud_common.hpp"
+#include "rviz_default_plugins/displays/pointcloud/point_cloud_helpers.hpp"
+#include "rviz_common/display_context.hpp"
+#include "rviz_common/frame_manager_iface.hpp"
+#include "rviz_rendering/objects/point_cloud.hpp"
+#include "rviz_common/properties/int_property.hpp"
+#include "rviz_common/validate_floats.hpp"
+#include "rviz_common/uniform_string_stream.hpp"
 
-#include "emoji_point_cloud2_display.h"
-#include "point_cloud_common.h"
+#include "ament_index_cpp/get_package_share_directory.hpp"
 
 namespace emojicloud_plugin {
 
 EmojiPointCloud2Display::EmojiPointCloud2Display()
-    : point_cloud_common_(new PointCloudCommon(this)) {
-  queue_size_property_ = new rviz::IntProperty(
+: point_cloud_common_(new rviz_default_plugins::PointCloudCommon(this))
+{
+
+  queue_size_property_ = new rviz_common::properties::IntProperty(
       "Queue Size", 10,
       "Advanced: set the size of the incoming PointCloud2 message queue. "
       " Increasing this is useful if your incoming TF data is delayed "
@@ -58,125 +60,161 @@ EmojiPointCloud2Display::EmojiPointCloud2Display()
       "the messages are big.",
       this, SLOT(updateQueueSize()));
 
+
   // PointCloudCommon sets up a callback queue with a thread for each
   // instance.  Use that for processing incoming messages.
-  update_nh_.setCallbackQueue(point_cloud_common_->getCallbackQueue());
+//  update_nh_.setCallbackQueue(point_cloud_common_->getCallbackQueue());
 }
 
-void EmojiPointCloud2Display::onInitialize() {
+void EmojiPointCloud2Display::onInitialize()
+{
   MFDClass::onInitialize();
   point_cloud_common_->initialize(context_, scene_node_);
 
   static bool resource_locations_added = false;
   if (!resource_locations_added) {
-    const std::string my_path =
-        ros::package::getPath(ROS_PACKAGE_NAME) + "/shaders";
+    const std::string my_path = ament_index_cpp::get_package_share_directory("emojicloud_plugin") + "/shaders";
     Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
-        my_path, "FileSystem", ROS_PACKAGE_NAME);
+        my_path, "FileSystem", "emojicloud_plugin");
     Ogre::ResourceGroupManager::getSingleton().initialiseAllResourceGroups();
     resource_locations_added = true;
   }
 }
 
-EmojiPointCloud2Display::~EmojiPointCloud2Display() {}
-
 void EmojiPointCloud2Display::updateQueueSize() {
   tf_filter_->setQueueSize((uint32_t)queue_size_property_->getInt());
 }
 
-void EmojiPointCloud2Display::processMessage(
-    const sensor_msgs::PointCloud2ConstPtr &cloud) {
-  // Filter any nan values out of the cloud.  Any nan values that make it
-  // through to PointCloudBase will get their points put off in lala land, but
-  // it means they still do get processed/rendered which can be a big
-  // performance hit
-  sensor_msgs::PointCloud2Ptr filtered(new sensor_msgs::PointCloud2);
-  int32_t xi = rviz::findChannelIndex(cloud, "x");
-  int32_t yi = rviz::findChannelIndex(cloud, "y");
-  int32_t zi = rviz::findChannelIndex(cloud, "z");
-
-  if (xi == -1 || yi == -1 || zi == -1) {
+void EmojiPointCloud2Display::processMessage(const sensor_msgs::msg::PointCloud2::ConstSharedPtr cloud)
+{
+  if (!hasXYZChannels(cloud)) {
     return;
   }
 
-  const uint32_t xoff = cloud->fields[xi].offset;
-  const uint32_t yoff = cloud->fields[yi].offset;
-  const uint32_t zoff = cloud->fields[zi].offset;
-  const uint32_t point_step = cloud->point_step;
-  const size_t point_count = cloud->width * cloud->height;
-
-  if (point_count * point_step != cloud->data.size()) {
-    std::stringstream ss;
-    ss << "Data size (" << cloud->data.size()
-       << " bytes) does not match width (" << cloud->width << ") times height ("
-       << cloud->height << ") times point_step (" << point_step
-       << ").  Dropping message.";
-    setStatusStd(rviz::StatusProperty::Error, "Message", ss.str());
+  if (!cloudDataMatchesDimensions(cloud)) {
+    rviz_common::UniformStringStream ss;
+    ss << "Data size (" << cloud->data.size() << " bytes) does not match width (" << cloud->width <<
+      ") times height (" << cloud->height << ") times point_step (" << cloud->point_step <<
+      ").  Dropping message.";
+    setStatusStd(rviz_common::properties::StatusProperty::Error, "Message", ss.str());
     return;
   }
 
-  filtered->data.resize(cloud->data.size());
-  uint32_t output_count;
-  if (point_count == 0) {
-    output_count = 0;
-  } else {
-    uint8_t *output_ptr = &filtered->data.front();
-    const uint8_t *ptr = &cloud->data.front(), *ptr_end = &cloud->data.back(),
-                  *ptr_init;
-    size_t points_to_copy = 0;
-    for (; ptr < ptr_end; ptr += point_step) {
-      float x = *reinterpret_cast<const float *>(ptr + xoff);
-      float y = *reinterpret_cast<const float *>(ptr + yoff);
-      float z = *reinterpret_cast<const float *>(ptr + zoff);
-      if (rviz::validateFloats(x) && rviz::validateFloats(y) &&
-          rviz::validateFloats(z)) {
-        if (points_to_copy == 0) {
-          // Only memorize where to start copying from
-          ptr_init = ptr;
-          points_to_copy = 1;
-        } else {
-          ++points_to_copy;
-        }
-      } else {
-        if (points_to_copy) {
-          // Copy all the points that need to be copied
-          memcpy(output_ptr, ptr_init, point_step * points_to_copy);
-          output_ptr += point_step * points_to_copy;
-          points_to_copy = 0;
-        }
-      }
-    }
-    // Don't forget to flush what needs to be copied
-    if (points_to_copy) {
-      memcpy(output_ptr, ptr_init, point_step * points_to_copy);
-      output_ptr += point_step * points_to_copy;
-    }
-    output_count = (output_ptr - &filtered->data.front()) / point_step;
+  point_cloud_common_->addMessage(filterOutInvalidPoints(cloud));
+}
+
+bool EmojiPointCloud2Display::hasXYZChannels(
+  const sensor_msgs::msg::PointCloud2::ConstSharedPtr cloud) const
+{
+  int32_t xi = rviz_default_plugins::findChannelIndex(cloud, "x");
+  int32_t yi = rviz_default_plugins::findChannelIndex(cloud, "y");
+  int32_t zi = rviz_default_plugins::findChannelIndex(cloud, "z");
+
+  return xi != -1 && yi != -1 && zi != -1;
+}
+
+bool EmojiPointCloud2Display::cloudDataMatchesDimensions(
+  const sensor_msgs::msg::PointCloud2::ConstSharedPtr cloud) const
+{
+  return cloud->width * cloud->height * cloud->point_step == cloud->data.size();
+}
+
+sensor_msgs::msg::PointCloud2::ConstSharedPtr EmojiPointCloud2Display::filterOutInvalidPoints(
+  const sensor_msgs::msg::PointCloud2::ConstSharedPtr cloud) const
+{
+  auto filtered = std::make_shared<sensor_msgs::msg::PointCloud2>();
+
+  if (cloud->width * cloud->height > 0) {
+    filtered->data = filterData(cloud);
   }
 
   filtered->header = cloud->header;
   filtered->fields = cloud->fields;
-  filtered->data.resize(output_count * point_step);
   filtered->height = 1;
-  filtered->width = output_count;
+  filtered->width = static_cast<uint32_t>(filtered->data.size() / cloud->point_step);
   filtered->is_bigendian = cloud->is_bigendian;
-  filtered->point_step = point_step;
-  filtered->row_step = output_count;
+  filtered->point_step = cloud->point_step;
+  filtered->row_step = filtered->width;
 
-  point_cloud_common_->addMessage(filtered);
+  return filtered;
 }
 
-void EmojiPointCloud2Display::update(float wall_dt, float ros_dt) {
+sensor_msgs::msg::PointCloud2::_data_type
+EmojiPointCloud2Display::filterData(sensor_msgs::msg::PointCloud2::ConstSharedPtr cloud) const
+{
+  sensor_msgs::msg::PointCloud2::_data_type filteredData;
+  filteredData.reserve(cloud->data.size());
+
+  Offsets offsets = determineOffsets(cloud);
+  size_t points_to_copy = 0;
+  sensor_msgs::msg::PointCloud2::_data_type::const_iterator copy_start_pos;
+  for (auto it = cloud->data.begin(); it < cloud->data.end(); it += cloud->point_step) {
+    if (validateFloatsAtPosition(it, offsets)) {
+      if (points_to_copy == 0) {
+        copy_start_pos = it;
+      }
+      ++points_to_copy;
+    } else if (points_to_copy > 0) {
+      filteredData.insert(
+        filteredData.end(),
+        copy_start_pos,
+        copy_start_pos + points_to_copy * cloud->point_step);
+      points_to_copy = 0;
+    }
+  }
+  // Don't forget to flush what needs to be copied
+  if (points_to_copy > 0) {
+    filteredData.insert(
+      filteredData.end(),
+      copy_start_pos,
+      copy_start_pos + points_to_copy * cloud->point_step);
+  }
+
+  return filteredData;
+}
+
+Offsets EmojiPointCloud2Display::determineOffsets(
+  const sensor_msgs::msg::PointCloud2::ConstSharedPtr cloud) const
+{
+  Offsets offsets{
+    cloud->fields[rviz_default_plugins::findChannelIndex(cloud, "x")].offset,
+    cloud->fields[rviz_default_plugins::findChannelIndex(cloud, "y")].offset,
+    cloud->fields[rviz_default_plugins::findChannelIndex(cloud, "z")].offset
+  };
+  return offsets;
+}
+
+bool EmojiPointCloud2Display::validateFloatsAtPosition(
+  sensor_msgs::msg::PointCloud2::_data_type::const_iterator position,
+  const Offsets offsets) const
+{
+  float x = *reinterpret_cast<const float *>(&*(position + offsets.x));
+  float y = *reinterpret_cast<const float *>(&*(position + offsets.y));
+  float z = *reinterpret_cast<const float *>(&*(position + offsets.z));
+
+  return rviz_common::validateFloats(x) &&
+         rviz_common::validateFloats(y) &&
+         rviz_common::validateFloats(z);
+}
+
+void EmojiPointCloud2Display::update(float wall_dt, float ros_dt)
+{
   point_cloud_common_->update(wall_dt, ros_dt);
 }
 
-void EmojiPointCloud2Display::reset() {
+void EmojiPointCloud2Display::reset()
+{
   MFDClass::reset();
   point_cloud_common_->reset();
 }
 
+void EmojiPointCloud2Display::onDisable()
+{
+  MFDClass::onDisable();
+  point_cloud_common_->onDisable();
+}
+
 } // namespace emojicloud_plugin
 
-#include <pluginlib/class_list_macros.h>
-PLUGINLIB_EXPORT_CLASS(emojicloud_plugin::EmojiPointCloud2Display,
-                       rviz::Display)
+#include <pluginlib/class_list_macros.hpp>  // NOLINT
+PLUGINLIB_EXPORT_CLASS(emojicloud_plugin::EmojiPointCloud2Display, rviz_common::Display)

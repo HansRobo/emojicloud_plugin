@@ -8,22 +8,40 @@
 
   <license>MIT</license>
 
+  <buildtool_depend>ament_cmake</buildtool_depend>
   <buildtool_depend>ament_cmake_auto</buildtool_depend>
-  <build_depend>rclcpp</build_depend>
-  <build_depend>rviz2</build_depend>
-  <build_depend>sensor_msgs</build_depend>
-<!--  <build_depend>roslib</build_depend>-->
-  <build_export_depend>rclcpp</build_export_depend>
-  <build_export_depend>rviz2</build_export_depend>
-  <build_export_depend>sensor_msgs</build_export_depend>
-<!--  <build_export_depend>roslib</build_export_depend>-->
-  <exec_depend>rclcpp</exec_depend>
-  <exec_depend>rviz2</exec_depend>
-  <exec_depend>sensor_msgs</exec_depend>
-<!--  <exec_depend>roslib</exec_depend>-->
 
+  <depend>libqt5-widgets</depend>
+  <depend>rclcpp</depend>
+  <depend>rviz_common</depend>
+  <depend>rviz_rendering</depend>
+  <depend>rviz_ogre_vendor</depend>
+  <depend>sensor_msgs</depend>
+  <depend>rviz_default_plugins</depend>
+  <depend>pluginlib</depend>
+  <depend>ament_index_cpp</depend>
+  <depend>ignition-math6</depend>
+
+<!--  <build_export_depend>rclcpp</build_export_depend>-->
+<!--  <build_export_depend>rviz_common</build_export_depend>-->
+<!--  <build_export_depend>rviz_rendering</build_export_depend>-->
+<!--  <build_export_depend>rviz_ogre_vendor</build_export_depend>-->
+<!--  <build_export_depend>sensor_msgs</build_export_depend>-->
+<!--  <build_export_depend>rviz_default_plugins</build_export_depend>-->
+<!--  <build_export_depend>pluginlib</build_export_depend>-->
+<!--  <build_export_depend>ament_index_cpp</build_export_depend>-->
+
+<!--  <exec_depend>rclcpp</exec_depend>-->
+<!--  <exec_depend>rviz_common</exec_depend>-->
+<!--  <exec_depend>rviz_rendering</exec_depend>-->
+<!--  <exec_depend>rviz_ogre_vendor</exec_depend>-->
+<!--  <exec_depend>pluginlib</exec_depend>-->
+<!--  <exec_depend>sensor_msgs</exec_depend>-->
+<!--  <exec_depend>rviz_default_plugins</exec_depend>-->
+<!--  <exec_depend>ament_index_cpp</exec_depend>-->
 
   <export>
-    <rviz plugin="${prefix}/plugin_description.xml"/>
+    <build_type>ament_cmake</build_type>
   </export>
+
 </package>

@@ -111,4 +111,4 @@ void EmojiLaserScanDisplay::reset() {
 } // namespace emojicloud_plugin
 
 #include <pluginlib/class_list_macros.hpp>
-PLUGINLIB_EXPORT_CLASS(emojicloud_plugin::EmojiLaserScanDisplay, rviz::Display)
+PLUGINLIB_EXPORT_CLASS(emojicloud_plugin::EmojiLaserScanDisplay, rviz_common::Display)
